@@ -16,7 +16,7 @@ def check_pin():
     pin_input = st.text_input("הזן קוד גישה בן 4 ספרות", type="password", max_chars=4)
 
     if pin_input:
-        if pin_input == st.secrets.get("APP_PIN"):
+        if pin_input.strip() == str(st.secrets.get("APP_PIN", "")).strip():
             st.session_state.authenticated = True
             st.rerun()
         else:
