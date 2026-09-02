@@ -86,6 +86,10 @@ html, body, [class*="css"] {
 h1, h2, h3, h4, p, label, span, div { color: var(--text-primary); }
 .stCaption, [data-testid="stCaptionContainer"] { color: var(--text-secondary) !important; }
 
+/* --- כותרות: יישור לימין (RTL) --- */
+[data-testid="stHeadingWithActionElements"] { direction: rtl; justify-content: flex-end; }
+h1, h2, h3, h4, h5, h6 { text-align: right; width: 100%; }
+
 /* --- כרטיסי זכוכית (containers עם border) --- */
 div[data-testid="stVerticalBlockBorderWrapper"]:has(div[data-testid="stVerticalBlock"]) {
     background: var(--glass-bg);
@@ -179,9 +183,9 @@ div[data-testid="stButton"] > button[kind="primary"]:hover {
     display: flex; flex-direction: column; align-items: center; gap: 0.35rem;
     padding: 0.4rem 0 0.2rem 0;
 }
-.ring-label { font-size: 0.82rem; color: var(--text-secondary); text-align: center; }
-.ring-delta { font-size: 0.78rem; font-weight: 600; direction: ltr; }
-.ring-range { font-size: 0.68rem; color: var(--text-secondary); direction: ltr; opacity: 0.8; }
+.ring-label { font-size: 1rem; font-weight: 700; color: var(--text-primary); text-align: center; }
+.ring-delta { font-size: 0.9rem; font-weight: 700; direction: ltr; }
+.ring-range { font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); direction: ltr; opacity: 0.9; }
 
 input, textarea { direction: ltr; }
 
