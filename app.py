@@ -8,24 +8,6 @@ from datetime import datetime, timedelta
 # הגדרת תצורת עמוד Streamlit
 st.set_page_config(page_title="Market Shift Dashboard", layout="wide", page_icon="🌌")
 
-# ------------------ הגנת PIN לכניסה לדשבורד ------------------
-def check_pin():
-    if st.session_state.get("authenticated"):
-        return True
-
-    st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
-    st.markdown('<div class="hero-title">🔒 כניסה לדשבורד</div>', unsafe_allow_html=True)
-    pin_input = st.text_input("הזן קוד גישה בן 4 ספרות", type="password", max_chars=4)
-
-    if pin_input:
-        if pin_input.strip() == str(st.secrets.get("APP_PIN", "")).strip():
-            st.session_state.authenticated = True
-            st.rerun()
-        else:
-            st.error("קוד שגוי, נסה שוב.")
-
-    return False
-
 # ------------------ עיצוב גלובלי: Aurora כהה + זכוכית + טבעות ------------------
 GLOBAL_CSS = """
 <style>
@@ -241,9 +223,6 @@ div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:nth-child(5) 
 * { scrollbar-color: #6d5bd0 transparent; scrollbar-width: thin; }
 </style>
 """
-
-if not check_pin():
-    st.stop()
 
 st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
 
