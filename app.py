@@ -187,6 +187,11 @@ div[data-testid="stButton"] > button[kind="primary"]:hover {
 .ring-delta { font-size: 0.9rem; font-weight: 700; direction: ltr; }
 .ring-range { font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); direction: ltr; opacity: 0.9; }
 
+/* --- כרטיסי אינדיקטור מוגדלים (לשונית "בחירת מניות") --- */
+.ring-card-lg .ring-label { font-size: 1.2rem; }
+.ring-card-lg .ring-delta { font-size: 1.05rem; }
+.ring-card-lg .ring-range { font-size: 0.92rem; }
+
 input, textarea { direction: ltr; }
 
 /* --- Plotly: מונע מ-RTL הגלובלי לשבור את תוויות הצירים --- */
@@ -896,11 +901,11 @@ with tab2:
                 def stock_indicator_card(col, idx, ring_value_text, pct, delta_text, delta_color, raw_range_text):
                     with col:
                         with st.container(border=True):
-                            ring_html = ring_gauge(ring_value_text, pct, f"stockind{idx}", size=78, stroke=7,
-                                                    color_from="#8b5cf6", color_to="#22d3ee", font_size="0.85rem")
+                            ring_html = ring_gauge(ring_value_text, pct, f"stockind{idx}", size=92, stroke=8,
+                                                    color_from="#8b5cf6", color_to="#22d3ee", font_size="1.15rem")
                             delta_hex = {"good": "#34d399", "bad": "#f43f5e"}.get(delta_color, "#93a0bd")
                             st.markdown(
-                                f'<div class="ring-card">'
+                                f'<div class="ring-card ring-card-lg">'
                                 f'{ring_html}'
                                 f'<div class="ring-label">{STOCK_IND_SHORT[idx]}</div>'
                                 f'<div class="ring-delta" style="color:{delta_hex};">{delta_text}</div>'
@@ -930,11 +935,23 @@ with tab2:
                         st.info("אין מספיק היסטוריה לחישוב SMA150")
 
                 # 2. מומנטום מול המדד
+                if mom_values:
+                    pos_count = sum(1 for v in mom_values if v > 0)
+                    if pos_count == len(mom_values):
+                        abs_mom_label = "מומנטום חיובי"
+                    elif pos_count == 0:
+                        abs_mom_label = "מומנטום שלילי"
+                    else:
+                        abs_mom_label = "מומנטום ממוצע"
+                else:
+                    abs_mom_label = "אין נתוני מומנטום"
+
                 if rel_values:
                     mom_pct = sum(1 for v in rel_values if v > 0) / len(rel_values)
                     mom_primary = rel_mom.get("m3", next(iter(rel_mom.values()), None))
                     mom_ring_text = f"{mom_primary:+.1f}%" if mom_primary is not None else "—"
-                    mom_delta_text = "מעל המדד" if mom_pct > 0.5 else "מתחת למדד"
+                    rel_label = "מעל למדד" if mom_pct > 0.5 else "מתחת למדד"
+                    mom_delta_text = f"{rel_label}-{abs_mom_label}"
                     mom_text = " / ".join(
                         f"{lbl} {rel_mom[k]:+.1f}%" for lbl, k in
                         zip(["חודש", "3ח׳", "YTD"], ("m1", "m3", "ytd")) if k in rel_mom
@@ -942,7 +959,7 @@ with tab2:
                 else:
                     mom_pct = (sum(1 for v in mom_values if v > 0) / len(mom_values)) if mom_values else 0.5
                     mom_ring_text = f"{mom['m3']:+.0f}%" if mom["m3"] is not None else "—"
-                    mom_delta_text = "חיובי" if mom_pct > 0.5 else "שלילי"
+                    mom_delta_text = abs_mom_label
                     mom_text = " / ".join(
                         f"{lbl} {v:+.1f}%" for lbl, v in zip(["חודש", "3ח׳", "YTD"], (mom["m1"], mom["m3"], mom["ytd"]))
                         if v is not None
