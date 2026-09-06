@@ -290,25 +290,83 @@ def load_stock_history(symbol):
     return hist, info
 
 
+def _pe_stats_from_symbols(symbols):
+    pes = []
+    for s in symbols:
+        try:
+            pe = yf.Ticker(s).info.get("trailingPE")
+            if pe and pe > 0:
+                pes.append(pe)
+        except Exception:
+            continue
+    if not pes:
+        return None
+    return dict(avg=sum(pes) / len(pes), min=min(pes), max=max(pes), n=len(pes))
+
+
 @st.cache_data(ttl=21600, show_spinner=False)  # 6 שעות — נתוני ענף משתנים לאט
-def get_industry_avg_pe(industry_key, exclude_symbol):
-    """ממוצע P/E (trailing) של החברות המובילות באותו תת-ענף ביאהו פייננס, כתחליף ל'ממוצע הענף'."""
+def get_industry_pe_stats(industry_key, exclude_symbol):
+    """סטטיסטיקת P/E (trailing) של החברות המובילות באותו תת-ענף ביאהו פייננס — 'ממוצע הענף' הצר."""
     try:
         top = yf.Industry(industry_key).top_companies
         peers = [s for s in top.index.tolist() if s != exclude_symbol][:8]
-        pes = []
-        for s in peers:
-            try:
-                pe = yf.Ticker(s).info.get("trailingPE")
-                if pe and pe > 0:
-                    pes.append(pe)
-            except Exception:
-                continue
-        if not pes:
-            return None, 0
-        return sum(pes) / len(pes), len(pes)
+        return _pe_stats_from_symbols(peers)
     except Exception:
-        return None, 0
+        return None
+
+
+@st.cache_data(ttl=21600, show_spinner=False)  # 6 שעות — נתוני סקטור משתנים לאט
+def get_sector_pe_stats(sector_key, exclude_symbol):
+    """סטטיסטיקת P/E (trailing) של החברות המובילות באותו סקטור רחב ביאהו פייננס — קונטקסט רחב יותר מהענף הצר."""
+    try:
+        top = yf.Sector(sector_key).top_companies
+        peers = [s for s in top.index.tolist() if s != exclude_symbol][:8]
+        return _pe_stats_from_symbols(peers)
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_benchmark_momentum():
+    """מומנטום S&P 500 (חודש/3 חודשים/YTD) — קו הבסיס להשוואת מומנטום יחסי."""
+    hist, _ = load_stock_history("^GSPC")
+    return compute_momentum(hist)
+
+
+def comparison_slider(points, unit="", lo=None, hi=None, height=76):
+    """סליידר אופקי (LTR) הממקם כמה נקודות-השוואה על ציר ערכים משותף — למשל המניה מול ממוצעי ענף/סקטור."""
+    vals = [p["value"] for p in points]
+    if lo is None:
+        lo = min(vals)
+    if hi is None:
+        hi = max(vals)
+    if hi <= lo:
+        hi = lo + 1
+    pad = (hi - lo) * 0.18
+    lo_p, hi_p = lo - pad, hi + pad
+    span = hi_p - lo_p
+    dots = ""
+    for p in points:
+        pct = max(3.0, min(97.0, (p["value"] - lo_p) / span * 100))
+        val_text = p.get("value_fmt", f"{p['value']:.1f}{unit}")
+        dots += (
+            f'<div style="position:absolute; left:{pct:.1f}%; top:50%; transform:translate(-50%,-50%); '
+            f'display:flex; flex-direction:column; align-items:center; gap:2px; z-index:1;">'
+            f'<div style="font-size:0.74rem; font-weight:700; color:{p["color"]}; white-space:nowrap;">{val_text}</div>'
+            f'<div style="width:13px; height:13px; border-radius:50%; background:{p["color"]}; '
+            f'border:2px solid #0a0e17; box-shadow:0 0 8px {p["color"]}99;"></div>'
+            f'<div style="font-size:0.7rem; color:var(--text-secondary); white-space:nowrap;">{p["label"]}</div>'
+            f'</div>'
+        )
+    track = (
+        f'<div style="position:absolute; left:2%; right:2%; top:50%; height:4px; border-radius:4px; '
+        f'transform:translateY(-50%); background:linear-gradient(90deg, var(--accent-purple), var(--accent-cyan));"></div>'
+    )
+    return (
+        f'<div style="direction:ltr; position:relative; width:100%; height:{height}px; margin:0.4rem 0 1rem 0;">'
+        f'{track}{dots}'
+        f'</div>'
+    )
 
 
 def _price_change_pct(hist, days_back):
@@ -359,14 +417,14 @@ STOCK_IND_INFO = {
         meaning="**משמעות מעשית:** מחיר מעל הממוצע ומתרחק ממנו = מגמת עלייה חזקה (אך גם מתוחה יותר). מחיר מתחת לממוצע = מגמת ירידה או תיקון ממושך.",
     ),
     2: dict(
-        name="2️⃣ מומנטום מחיר — חודש / 3 חודשים / מתחילת השנה",
-        what="**מה לבדוק:** שינוי המחיר באחוזים בשלושה טווחי זמן שונים — קצר (חודש), בינוני (3 חודשים) וממושך (YTD).",
-        meaning="**משמעות מעשית:** מומנטום חיובי ועקבי בכל הטווחים מחזק את התמונה החיובית. פיצול בין הטווחים (למשל חיובי בטווח קצר אך שלילי מתחילת השנה) מרמז על שינוי מגמה.",
+        name="2️⃣ מומנטום מחיר מול S&P 500 — חודש / 3 חודשים / מתחילת השנה",
+        what="**מה לבדוק:** שינוי המחיר של המניה בשלושה טווחי זמן, בהשוואה לשינוי של מדד S&P 500 באותם טווחים בדיוק — לא המספר הגולמי לבדו, אלא האם המניה עלתה/ירדה יותר או פחות מהשוק הכללי.",
+        meaning="**משמעות מעשית:** מניה שמנצחת את המדד ברוב הטווחים מפגינה מומנטום יחסי חזק. מניה שעולה במספרים גולמיים אך מפגרת אחרי המדד בעצם 'מפסידה לשוק' — לכן ההשוואה למדד חשובה יותר מהאחוז הבודד.",
     ),
     3: dict(
-        name="3️⃣ רווח למניה (P/E) מול ממוצע הענף",
-        what="**מה לבדוק:** יחס מחיר/רווח (P/E) של החברה מול הממוצע בקרב החברות המובילות באותו תת-ענף ביאהו פייננס.",
-        meaning="**משמעות מעשית:** P/E נמוך מהענף עשוי להעיד על מניה זולה יחסית לתחום שלה; P/E גבוה מהענף עשוי להעיד על תמחור יקר או על ציפיות צמיחה גבוהות. זהו אינדיקטור השוואתי בלבד, לא המלצת קנייה/מכירה.",
+        name="3️⃣ רווח למניה (P/E) מול ממוצע הענף והסקטור",
+        what="**מה לבדוק:** היכן ממוקם ה-P/E (מחיר/רווח) של החברה ביחס לשני קווי ייחוס: ממוצע החברות המובילות באותו תת-ענף (השוואה צרה) וממוצע החברות המובילות בסקטור הרחב (השוואה רחבה).",
+        meaning="**משמעות מעשית:** P/E נמוך מהענף/הסקטור עשוי להעיד על מניה זולה יחסית לתחום שלה; P/E גבוה עשוי להעיד על תמחור יקר או על ציפיות צמיחה גבוהות. זהו אינדיקטור השוואתי בלבד, לא המלצת קנייה/מכירה — הניקוד בכרטיס מבוסס על ההשוואה לענף (הצרה מבין השתיים).",
     ),
     4: dict(
         name="4️⃣ רמות פיבונאצי",
@@ -374,7 +432,7 @@ STOCK_IND_INFO = {
         meaning="**משמעות מעשית:** מחיר קרוב לשיא הטווח (תיקון קטן) נחשב חזק יותר; מחיר שירד לרמות תיקון עמוקות (61.8% ומעלה) מתקרב לאזור שבו לרוב נבחנת התאוששות או המשך ירידה.",
     ),
 }
-STOCK_IND_SHORT = {1: "מרחק מ-SMA150", 2: "מומנטום מחיר", 3: "P/E מול הענף", 4: "רמת פיבונאצי"}
+STOCK_IND_SHORT = {1: "מרחק מ-SMA150", 2: "מומנטום מול המדד", 3: "P/E מול הענף", 4: "רמת פיבונאצי"}
 
 
 
@@ -666,8 +724,8 @@ with tab2:
 **כלל מרכזי:** כל אינדיקטור בודד הוא רמז אחד בלבד — הסיכום למטה משקלל את כולם יחד, אך אינו תחליף לניתוח עצמאי ואינו המלצת השקעה.
 
 1. מרחק מהממוצע הנע ל-150 יום (מעל/מתחת, ובאיזה מרחק)
-2. מומנטום מחיר — חודש / 3 חודשים / מתחילת השנה
-3. רווח למניה (P/E) בהשוואה לממוצע החברות המובילות באותו תת-ענף
+2. מומנטום מחיר מול מדד S&P 500 — חודש / 3 חודשים / מתחילת השנה
+3. רווח למניה (P/E) מול ממוצע תת-הענף וממוצע הסקטור הרחב
 4. רמות פיבונאצי — היכן נמצא המחיר ביחס לטווח השיא/שפל האחרון
 """)
 
@@ -721,14 +779,28 @@ with tab2:
 
                 mom = compute_momentum(hist)
                 mom_values = [v for v in (mom["m1"], mom["m3"], mom["ytd"]) if v is not None]
+                spx_mom = get_benchmark_momentum()
+                rel_mom = {
+                    k: mom[k] - spx_mom[k]
+                    for k in ("m1", "m3", "ytd")
+                    if mom.get(k) is not None and spx_mom.get(k) is not None
+                }
+                rel_values = list(rel_mom.values())
                 fib = compute_fibonacci(hist, fib_days)
 
                 industry_key = info.get("industryKey")
+                sector_key = info.get("sectorKey")
                 stock_pe = info.get("trailingPE")
-                industry_pe, n_peers = (None, 0)
-                if industry_key and stock_pe:
+                industry_stats, sector_stats = None, None
+                if stock_pe and industry_key:
                     with st.spinner("משווה לענף..."):
-                        industry_pe, n_peers = get_industry_avg_pe(industry_key, selected_symbol)
+                        industry_stats = get_industry_pe_stats(industry_key, selected_symbol)
+                if stock_pe and sector_key:
+                    with st.spinner("משווה לסקטור..."):
+                        sector_stats = get_sector_pe_stats(sector_key, selected_symbol)
+                industry_pe = industry_stats["avg"] if industry_stats else None
+                n_peers = industry_stats["n"] if industry_stats else 0
+                sector_pe = sector_stats["avg"] if sector_stats else None
 
                 # ------------- ניקוד בוליש/בריש -------------
                 bull_score, bear_score = 0, 0
@@ -742,7 +814,15 @@ with tab2:
                         bear_score += 1
                         signal_notes.append("המחיר מתחת לממוצע 150 יום")
 
-                if mom_values:
+                if rel_values:
+                    outperform = sum(1 for v in rel_values if v > 0)
+                    if outperform > len(rel_values) / 2:
+                        bull_score += 1
+                        signal_notes.append("המניה עולה על ביצועי S&P 500 ברוב טווחי הזמן")
+                    else:
+                        bear_score += 1
+                        signal_notes.append("המניה מפגרת אחרי ביצועי S&P 500 ברוב טווחי הזמן")
+                elif mom_values:
                     positive = sum(1 for v in mom_values if v > 0)
                     if positive > len(mom_values) / 2:
                         bull_score += 1
@@ -849,27 +929,42 @@ with tab2:
                     with sc1:
                         st.info("אין מספיק היסטוריה לחישוב SMA150")
 
-                # 2. מומנטום
-                mom_pct = (sum(1 for v in mom_values if v > 0) / len(mom_values)) if mom_values else 0.5
-                mom_text = " / ".join(
-                    f"{lbl} {v:+.1f}%" for lbl, v in zip(["חודש", "3ח׳", "YTD"], (mom["m1"], mom["m3"], mom["ytd"]))
-                    if v is not None
-                )
+                # 2. מומנטום מול המדד
+                if rel_values:
+                    mom_pct = sum(1 for v in rel_values if v > 0) / len(rel_values)
+                    mom_primary = rel_mom.get("m3", next(iter(rel_mom.values()), None))
+                    mom_ring_text = f"{mom_primary:+.1f}%" if mom_primary is not None else "—"
+                    mom_delta_text = "מעל המדד" if mom_pct > 0.5 else "מתחת למדד"
+                    mom_text = " / ".join(
+                        f"{lbl} {rel_mom[k]:+.1f}%" for lbl, k in
+                        zip(["חודש", "3ח׳", "YTD"], ("m1", "m3", "ytd")) if k in rel_mom
+                    )
+                else:
+                    mom_pct = (sum(1 for v in mom_values if v > 0) / len(mom_values)) if mom_values else 0.5
+                    mom_ring_text = f"{mom['m3']:+.0f}%" if mom["m3"] is not None else "—"
+                    mom_delta_text = "חיובי" if mom_pct > 0.5 else "שלילי"
+                    mom_text = " / ".join(
+                        f"{lbl} {v:+.1f}%" for lbl, v in zip(["חודש", "3ח׳", "YTD"], (mom["m1"], mom["m3"], mom["ytd"]))
+                        if v is not None
+                    )
                 stock_indicator_card(
-                    sc2, 2, f"{mom['m3']:+.0f}%" if mom["m3"] is not None else "—", mom_pct,
-                    "חיובי" if mom_pct > 0.5 else "שלילי", "good" if mom_pct > 0.5 else "bad",
+                    sc2, 2, mom_ring_text, mom_pct,
+                    mom_delta_text, "good" if mom_pct > 0.5 else "bad",
                     mom_text or "אין נתונים",
                 )
 
-                # 3. P/E מול ענף
+                # 3. P/E מול ענף וסקטור
                 if stock_pe and industry_pe:
                     pe_ratio = stock_pe / industry_pe
                     pe_pct = max(0.0, min(1.0, (pe_ratio - 0.4) / (1.6 - 0.4)))
+                    range_parts = [f"ענף: {industry_pe:.1f} ({n_peers})"]
+                    if sector_pe:
+                        range_parts.append(f"סקטור: {sector_pe:.1f}")
                     stock_indicator_card(
                         sc3, 3, f"{stock_pe:.1f}", pe_pct,
                         "זול מהענף" if stock_pe < industry_pe else "יקר מהענף",
                         "good" if stock_pe < industry_pe else "bad",
-                        f"ענף: {industry_pe:.1f} ({n_peers} חברות)",
+                        " | ".join(range_parts),
                     )
                 else:
                     with sc3:
@@ -909,23 +1004,50 @@ with tab2:
                                                    fillcolor="rgba(139,92,246,0.15)"))
 
                     elif sel2 == 2:
-                        labels = ["חודש", "3 חודשים", "מתחילת השנה"]
-                        values = [mom["m1"], mom["m3"], mom["ytd"]]
-                        colors = ["#34d399" if (v or 0) >= 0 else "#f43f5e" for v in values]
-                        fig2.add_trace(go.Bar(x=labels, y=[v if v is not None else 0 for v in values],
-                                               marker_color=colors,
-                                               text=[f"{v:+.1f}%" if v is not None else "—" for v in values],
-                                               textposition="outside"))
+                        periods = [("חודש", "m1"), ("3 חודשים", "m3"), ("מתחילת השנה (YTD)", "ytd")]
+                        any_row = False
+                        for label, key in periods:
+                            stock_val, spx_val = mom.get(key), spx_mom.get(key)
+                            if stock_val is None or spx_val is None:
+                                continue
+                            any_row = True
+                            stock_color = "#34d399" if stock_val >= spx_val else "#f43f5e"
+                            st.markdown(f"**{label}**")
+                            st.markdown(
+                                comparison_slider([
+                                    dict(label=selected_symbol, value=stock_val, color=stock_color,
+                                         value_fmt=f"{stock_val:+.1f}%"),
+                                    dict(label="S&P 500", value=spx_val, color="#93a0bd",
+                                         value_fmt=f"{spx_val:+.1f}%"),
+                                ]),
+                                unsafe_allow_html=True,
+                            )
+                        if not any_row:
+                            st.info("אין מספיק נתונים להשוואת מומנטום מול המדד")
+                        show_chart = False
 
                     elif sel2 == 3:
-                        if stock_pe and industry_pe:
-                            fig2.add_trace(go.Bar(x=[selected_symbol, "ממוצע הענף"], y=[stock_pe, industry_pe],
-                                                   marker_color=["#8b5cf6", "#93a0bd"],
-                                                   text=[f"{stock_pe:.1f}", f"{industry_pe:.1f}"],
-                                                   textposition="outside"))
+                        if stock_pe and (industry_pe or sector_pe):
+                            if industry_pe:
+                                stock_color = "#34d399" if stock_pe < industry_pe else "#f43f5e"
+                            else:
+                                stock_color = "#34d399" if stock_pe < sector_pe else "#f43f5e"
+                            points = [dict(label=selected_symbol, value=stock_pe, color=stock_color,
+                                           value_fmt=f"{stock_pe:.1f}x")]
+                            if industry_pe:
+                                points.append(dict(label="ממוצע הענף", value=industry_pe, color="#22d3ee",
+                                                    value_fmt=f"{industry_pe:.1f}x"))
+                            if sector_pe:
+                                points.append(dict(label="ממוצע הסקטור", value=sector_pe, color="#fbbf24",
+                                                    value_fmt=f"{sector_pe:.1f}x"))
+                            st.markdown(comparison_slider(points), unsafe_allow_html=True)
+                            note = f"מבוסס על {n_peers} חברות מובילות בתת-הענף"
+                            if sector_pe:
+                                note += " ומדגם מקביל מהסקטור הרחב"
+                            st.caption(note + ".")
                         else:
-                            st.info("אין נתוני P/E זמינים להצגת גרף")
-                            show_chart = False
+                            st.info("אין נתוני P/E זמינים להצגה")
+                        show_chart = False
 
                     elif sel2 == 4:
                         if fib is not None:
